@@ -1,0 +1,308 @@
+{
+  "schema_version": 1,
+  "purpose": "Unmodified source prototypes supplied by the user; reference only, not integrated into the application.",
+  "files": [
+    {
+      "path": "homework_math_calendar_keypad_practice_v10.html",
+      "uploaded_filename": "homework_math_calendar_keypad_practice_v10-1.html",
+      "bytes": 27926,
+      "sha256": "91a3423fbd146db9447bc74d03c3d3f4e8d5a4c204984448f973163cebdfa710"
+    },
+    {
+      "path": "prototypes/gacha/daratto_gacha_collection_effects.html",
+      "uploaded_filename": "daratto_gacha_collection_effects.html",
+      "bytes": 2762624,
+      "sha256": "89850479fbad998589d173da4e7b9d57ba3846c895bd6ddfb28b6bbb8a77c898"
+    }
+  ],
+  "embedded_gacha_cards": [
+    {
+      "id": "No.01",
+      "name": "キリン",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 63845,
+      "image_sha256": "819688a31e47962e551a86cd9498c4207aae75a42cadc2f25902b158d1b16ede"
+    },
+    {
+      "id": "No.02",
+      "name": "キリン",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 50039,
+      "image_sha256": "0445a4d0ca05001ceba06978451ce5ab87596dfab885fc6d9381bd6110ed866f"
+    },
+    {
+      "id": "No.03",
+      "name": "キリン",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 60236,
+      "image_sha256": "416e7ffd15557ce78f3ad2db196404f9f90149cf52c2a043aa44a80ea44ac14a"
+    },
+    {
+      "id": "No.04",
+      "name": "ゾウ",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 49635,
+      "image_sha256": "20bd8daa3a6a516b8c95092c5e4fbf2e05f799898645b300b56c23e059b0d3ff"
+    },
+    {
+      "id": "No.05",
+      "name": "ゾウ",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 53281,
+      "image_sha256": "4092ab3a408612786fbf9e5406fa358ec166774e0afa1bcb4f43b7cde6499b8a"
+    },
+    {
+      "id": "No.06",
+      "name": "ゾウ",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 56316,
+      "image_sha256": "83d47a42251f32dea32ff2ea1d615b21baf45d780f5e1a97e7701e4ba955c5d8"
+    },
+    {
+      "id": "No.07",
+      "name": "ライオン",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 53616,
+      "image_sha256": "85e9dd67f8ec8b1df16620ba5187766fdb92787c19fc1ac12d88381a55def7e5"
+    },
+    {
+      "id": "No.08",
+      "name": "ライオン",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 63810,
+      "image_sha256": "02735bb8e99517505467b1f3b12e196a9168e7b35e36b619c08862344716d17d"
+    },
+    {
+      "id": "No.09",
+      "name": "ライオン",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 59900,
+      "image_sha256": "43e8e9537c8055925035a8ce863a70b07a54c216b25ddc39262a2e9374a46dc5"
+    },
+    {
+      "id": "No.10",
+      "name": "パンダ",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 64982,
+      "image_sha256": "e96b9298cd617f2bb7f1e50e87613d7033925b4a5b61cc9448c7ff837b816bd0"
+    },
+    {
+      "id": "No.11",
+      "name": "パンダ",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 64159,
+      "image_sha256": "440d590497f1441ffdff7e6933292b99086780349a559b5fde3b7b177ea30941"
+    },
+    {
+      "id": "No.12",
+      "name": "パンダ",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 61630,
+      "image_sha256": "33510c8f416bcfba5c6c1a9ce7e248457146cf870bdf4cbac04fbde47dcfae9c"
+    },
+    {
+      "id": "No.13",
+      "name": "コアラ",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 65194,
+      "image_sha256": "b329b2805b165a1e75a5d784b5e32f75ad91f3c99ed21ae6a4111c056c826518"
+    },
+    {
+      "id": "No.14",
+      "name": "コアラ",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 58522,
+      "image_sha256": "d2c517c8c5260f01e893dd4042d33be9c6074abf12b7052487f31b85b809ab5a"
+    },
+    {
+      "id": "No.15",
+      "name": "コアラ",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 58776,
+      "image_sha256": "4d0fdd869f381b32913aaf4621a6c5313c2dd61bba0f8baa08ea6085e8dcf674"
+    },
+    {
+      "id": "No.16",
+      "name": "レッサーパンダ",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 67026,
+      "image_sha256": "448608300f5f9d5961db734d67ffe9d1958bb5334dd95847cf841059487ca98e"
+    },
+    {
+      "id": "No.17",
+      "name": "レッサーパンダ",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 69456,
+      "image_sha256": "be2c04d198751236b80bda3705a5f4ea1690792f8a8503b44205817fa7e23cb0"
+    },
+    {
+      "id": "No.18",
+      "name": "レッサーパンダ",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 64504,
+      "image_sha256": "9199bf2592721de02678b6b8dd3f28bcf59d69e5d4dba4f83335232aff49b21a"
+    },
+    {
+      "id": "No.19",
+      "name": "カバ",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 65396,
+      "image_sha256": "61a015b164d5677f729185ce80cade643df6f62f451f85a292eba43502a45778"
+    },
+    {
+      "id": "No.20",
+      "name": "カバ",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 66589,
+      "image_sha256": "7a0abae6f0cce566c776194685adf11dc700a0381ac748daea33352ab91e90ee"
+    },
+    {
+      "id": "No.21",
+      "name": "カバ",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 66464,
+      "image_sha256": "e78f1f20f3916fb186d4eb88c17bc9bfcf40652adad70adfc114b13e1b41dd3c"
+    },
+    {
+      "id": "No.22",
+      "name": "ペンギン",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 64962,
+      "image_sha256": "e42ef693a2439c0dc4eff8a0173f4e3a0ff9bca37cad71d1dfd87eb9a176bc27"
+    },
+    {
+      "id": "No.23",
+      "name": "ペンギン",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 67165,
+      "image_sha256": "3a10d782812045c5db33a661908b1a598e15fa0160e104191fa5c1c2d1bfef6c"
+    },
+    {
+      "id": "No.24",
+      "name": "ペンギン",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 69286,
+      "image_sha256": "31ecca6060b70993aa22954b0cc65179e23d1fb335d6bb37d16e6d25466cb960"
+    },
+    {
+      "id": "No.25",
+      "name": "シロクマ",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 71736,
+      "image_sha256": "016159e702416896a99ca186f8153eb6d5b2ee61c554c50f1c3198cc070c5a0a"
+    },
+    {
+      "id": "No.26",
+      "name": "シロクマ",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 66478,
+      "image_sha256": "7a872ce97776290e04a509aa482b0412d2f298247a213a16d30cfa262a738ba2"
+    },
+    {
+      "id": "No.27",
+      "name": "シロクマ",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 70356,
+      "image_sha256": "8c2cc1b3c1fab97ad76cfd8d4d77024a850d26e70a705e6cb44ce1ae49cb9329"
+    },
+    {
+      "id": "No.28",
+      "name": "トラ",
+      "scene": "クッション",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 72004,
+      "image_sha256": "6412013719d30fd126b4890166c42a9119a85c8ed127da2af174077f0d7f064d"
+    },
+    {
+      "id": "No.29",
+      "name": "トラ",
+      "scene": "窓辺",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 74376,
+      "image_sha256": "26cb38ef24885b20f89540f72559d1cd6d4018a037047a2448a1944ba96af4b5"
+    },
+    {
+      "id": "No.30",
+      "name": "トラ",
+      "scene": "本の上",
+      "group": "normal",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 71034,
+      "image_sha256": "06b409a6bec51606d3400cbe4aac33ce034730bdc291320232a9d35420c99caf"
+    },
+    {
+      "id": "Secret01",
+      "name": "ユニコーン",
+      "scene": "クッション",
+      "group": "secret",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 68443,
+      "image_sha256": "5e4082b3deaa50cd88b21181ac6b162a62b90c78565d0a7ebd1a9a90fd6258fd"
+    },
+    {
+      "id": "Secret02",
+      "name": "ドラゴン",
+      "scene": "クッション",
+      "group": "secret",
+      "image_mime_type": "image/jpeg",
+      "image_bytes": 80554,
+      "image_sha256": "6a9ca940836ae13b442fdeb918af324c739c877ff63267c1d5443b463e7ace8e"
+    }
+  ]
+}
