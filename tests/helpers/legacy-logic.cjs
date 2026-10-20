@@ -1,10 +1,10 @@
-// Execute the actual legacy functions; never duplicate the game algorithms in tests.
+// Baseline oracle only: production tests import the new domain modules directly.
 // Extraction deliberately fails if the markers change. Replace this adapter with
-// normal imports when the application is split into modules in a later phase.
+// this baseline when the original archived HTML is deliberately retired.
 const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const html = readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
+const html = readFileSync(path.join(__dirname, '../../homework_math_calendar_keypad_practice_v10.html'), 'utf8');
 function between(start, end) {
   const from = html.indexOf(start);
   const to = html.indexOf(end, from + start.length);

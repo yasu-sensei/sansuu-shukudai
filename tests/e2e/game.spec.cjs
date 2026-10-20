@@ -9,7 +9,7 @@ async function boot(page, { mode = 0, practice = false, data = null, schedule = 
     localStorage.setItem('math-homework-v2:schedule', JSON.stringify(schedule));
     if (data) localStorage.setItem(key, JSON.stringify(data));
   }, { schedule, data, key: STUDENT });
-  await page.goto('/');
+  await page.goto(test.info().project.metadata.gamePath);
   await page.selectOption('#clazz', '1');
   await page.selectOption('#number', '1');
   await page.click('#loginBtn');

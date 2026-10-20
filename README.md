@@ -1,6 +1,6 @@
 # さんすうしゅくだい
 
-小学1年生がタブレットで使う算数宿題ゲームの試作版です。現在は静的HTMLだけで動作し、記録は同じブラウザの `localStorage` に保存されます。GAS、スプレッドシート、ガチャ、図鑑はまだ実装していません。
+小学1年生がタブレットで使う算数宿題ゲームの試作版です。現在は静的HTMLだけで動作し、記録は同じブラウザの `localStorage` に保存されます。GAS向けの配信ファイル生成と `doGet` を用意しています。学校Googleアカウントを使う方針ですが、認証・スプレッドシート連携・ガチャ・図鑑はまだ実装していません。
 
 ## 起動
 
@@ -10,11 +10,13 @@ Python 3で静的ファイルを配信します。アプリ本体にnpm依存関
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
-ルートの `index.html` が入口です。従来の `homework_math_calendar_keypad_practice_v10.html` も残しています。第1段階では両ファイルの内容をバイト単位で一致させ、見た目・操作・ゲーム処理を変更していません。
+ルートの `index.html` が入口です。CSSは `src/client/styles.css`、画面処理は `src/client/game.mjs`、出題・完了・ポイント・連続ボーナスは `src/domain/` に分離しています。ブラウザがES Modulesを読み込むため、HTMLの直接ファイル起動ではなくHTTPサーバーを使ってください。
+
+従来の `homework_math_calendar_keypad_practice_v10.html` は変更せず保持しています。HTML要素とCSSの一致、および同じ乱数による出題列の一致をテストし、見た目・操作・出題ルールを維持します。
 
 ## テスト環境
 
-必要なものはNode.js 22以上、npm、Python 3、Chromiumです。
+必要なものはNode.js 22.12以上、npm、Python 3、Chromiumです。
 
 ```sh
 npm ci
@@ -30,14 +32,14 @@ LinuxでブラウザのOS依存パッケージも必要な場合は `npx playwri
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm test
 ```
 
-- `npm run test:unit`: 実際のHTMLから取り出した出題・ボーナス関数をNode.jsで検証。
-- `npm run test:e2e`: 実際の `index.html` をChromiumで操作。専用の静的サーバーをポート8765で起動・終了。
+- `npm run test:unit`: 分離した本番モジュールを直接読み込み、出題・ボーナス・完了・ポイント・GAS配信物をNode.jsで検証。
+- `npm run test:e2e`: 通常版 `index.html` とGAS向け `build/gas/Index.html` の両方をChromiumで操作。専用の静的サーバーをポート8765で起動・終了。GAS用ビルドは自動実行します。
 - 時刻は日本時間に固定し、Playwright Clockで仮想時間を進めます。実時間で2分待ちません。
 - E2Eは各テストで独立したブラウザコンテキストを使います。通常利用の学習記録を操作しません。
 - 失敗時のトレースは `test-results/` に出力します。`npx playwright show-trace <trace.zipのパス>` で確認できます。
 - GitHub Actionsでも単体テストとブラウザテストを実行する設定を用意しています。
 
-抽出アダプターはゲームロジックを複製せず、実ファイルの関数を実行します。抽出位置が変わると明示的に失敗します。将来モジュール化する際は通常のimportへ置き換えます。
+通常のモジュール読み込みで本番ロジックをテストします。元HTMLからの抽出アダプターは変更前の比較基準としてのみ使用し、全5モード×100シード×100問について問題順序・式・答えの完全一致を確認します。元HTMLのSHA-256も固定しています。
 
 ## 現在の画面・操作
 
@@ -107,34 +109,56 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm test
 
 - クラス・番号の選択は本人認証ではありません。教師用暗証番号もクライアント側にある試作用です。
 - 記録とポイントはブラウザ内で編集可能です。本番の残高・権限の根拠には使えません。
-- 別端末への引継ぎ、バックアップ、GAS通信は未実装です。
+- 別端末への引継ぎ、バックアップ、GASの保存APIは未実装です。GAS配信だけでは認証・端末間同期は有効になりません。
 - 未来の宿題は設定されていても児童画面では宿題なしの表示です。
 - 保存済み利用者だけが残り宿題データがない場合、デモ宿題生成より先に描画されます。
 - 過去の宿題追加・削除によって連続ボーナスの並び・付与結果が変わる可能性があります。本番での改訂・訂正方針が必要です。
 - 仮想時間のChromiumテストは、実タブレット、Safari、スリープ復帰、通信遅延の検証を代替しません。
-- 見た目は元HTMLとの完全一致で維持しています。画像比較による回帰テストは未導入です。
+- HTML要素とCSSは元HTMLとの一致を検証しています。実機での画像比較は未導入です。
 
 上記は第1段階で修正せず、現行挙動として記録しています。
+
+## GAS向けビルド
+
+```sh
+npm run build:gas
+```
+
+`build/gas/` に `Index.html`（CSS・JavaScriptを同梱）、`Code.gs`、`appsscript.json` を生成します。相対パスによるJS/CSS読込やES Modulesを必要としないHTMLになるため、HTML Serviceへ配置できます。生成物はGit管理せず、ソースから再生成します。このコマンドはGoogleへ接続・公開しません。
+
+GASエディターへの配置方法と学校アカウントに関する注意は [docs/gas-setup.md](docs/gas-setup.md) を参照してください。クラウド環境では配信物のローカルブラウザ動作と `doGet` の模擬実行を検証し、実際のGoogle環境へのデプロイは未実施です。
 
 ## 現在のフォルダ構成
 
 ```text
-index.html                              # 現在の入口（元HTMLの完全コピー）
-homework_math_calendar_keypad_practice_v10.html # 保存する従来版
-package.json / package-lock.json        # テスト依存関係と実行コマンド
-playwright.config.cjs                   # ブラウザ・仮想時間テストの設定
+index.html                              # 通常版の入口
+homework_math_calendar_keypad_practice_v10.html # 変更しない基準版
+src/
+  client/game.mjs                       # 画面・イベント・現在の端末内保存
+  client/styles.css                     # 元HTMLと同じCSS
+  domain/questions.mjs                  # 出題セット・重複回避
+  domain/scoring.mjs                    # 完了条件・基本ポイント
+  domain/streaks.mjs                    # 連続ボーナス
+  gas/Code.gs                          # GAS配信入口doGet
+  gas/appsscript.json                   # 日本時間・V8
+scripts/build-gas.mjs                   # 配信ファイルを生成
+build/gas/                             # 生成物（Git管理外）
+package.json / package-lock.json        # テスト・ビルド依存関係
+playwright.config.cjs                   # 通常版とGAS配信物のテスト設定
 tests/
-  helpers/legacy-logic.cjs               # 現行関数の抽出アダプター
-  unit/game-rules.test.cjs               # 出題・連続ボーナス・HTML同一性
-  e2e/game.spec.cjs                      # 実画面の完了・採点・記録テスト
-docs/gas-architecture.md                # 将来の構成案（未実装）
+  helpers/legacy-logic.cjs               # 元HTMLの比較基準
+  unit/game-rules.test.cjs               # 本番モジュールと元実装の比較
+  unit/gas-build.test.cjs                # ビルド・配信・完了・ポイント
+  e2e/game.spec.cjs                      # 両配信形式で同じ操作を検証
+docs/gas-architecture.md                # 将来の保存・認証構成
+docs/gas-setup.md                       # GAS配置・確認手順
 .github/workflows/test.yml              # 自動テスト
 ```
 
 ## 開発予定
 
-1. **仕様固定とテスト整備（今回）**：元HTML保持、入口追加、出題・完了・ポイントの回帰テスト。
-2. GAS配信と役割分離：見た目を維持し、画面・出題・保存・通信の責務を分ける。
+1. 仕様固定とテスト整備（第1段階で完了）：元HTML保持、入口追加、出題・完了・ポイントの回帰テスト。
+2. **GAS配信準備と役割分離（今回）**：CSS・出題・採点ルールを分離し、GAS配信物を生成。保存・通信の切替は次段階。
 3. 教師・児童認証、1〜4組への日付・モード別宿題一括設定、児童別カレンダー。
 4. サーバー側での採点検証、学習記録、ポイント台帳、別端末への引継ぎ。
 5. ガチャ・図鑑の統合と通信切断・同時実行時の復旧。
