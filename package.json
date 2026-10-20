@@ -3,13 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "description": "さんすうしゅくだい：現行仕様の回帰テスト",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "start": "python3 -m http.server 8000 --bind 127.0.0.1",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "node --test tests/unit/*.test.cjs",
     "test:e2e": "playwright test",
-    "test:install": "playwright install chromium"
+    "test:install": "playwright install chromium",
+    "build:gas": "node scripts/build-gas.mjs",
+    "pretest": "npm run build:gas",
+    "pretest:e2e": "npm run build:gas"
   },
-  "devDependencies": { "@playwright/test": "1.61.1" }
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "esbuild": "0.28.2"
+  }
 }
