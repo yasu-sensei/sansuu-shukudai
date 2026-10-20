@@ -32,4 +32,14 @@ const bundledHtml = html.replace(styleTag, () => `<style>${embeddedCss}</style>`
 await mkdir(output, { recursive: true });
 await writeFile(path.join(output, 'Index.html'), bundledHtml);
 await Promise.all(['Code.gs', 'appsscript.json'].map(name => copyFile(path.join(root, 'src/gas', name), path.join(output, name))));
-console.log('Built build/gas/{Index.html,Code.gs,appsscript.json} (no deployment performed)');
+const server = await build({ absWorkingDir: root, entryPoints: ['src/server/classroom.mjs'], bundle: true,
+  write: false, format: 'iife', globalName: 'ClassroomCore', target: 'es2020', charset: 'utf8' });
+await writeFile(path.join(output, 'ClassroomCore.gs'), server.outputFiles[0].text);
+const teacherBundle = await build({ absWorkingDir: root, entryPoints: ['src/client/teacher.mjs'], bundle: true,
+  write: false, format: 'iife', target: 'es2020', charset: 'utf8' });
+const teacherTemplate = await readFile(path.join(root, 'src/client/teacher.html'), 'utf8');
+const teacherStyles = await readFile(path.join(root, 'src/client/teacher.css'), 'utf8');
+await writeFile(path.join(output, 'Teacher.html'), teacherTemplate
+  .replace('<link rel="stylesheet" href="./teacher.css">', () => `<style>${teacherStyles}</style>`)
+  .replace('<script type="module" src="./teacher.mjs"></script>', () => `<script>${teacherBundle.outputFiles[0].text.replace(/<\/script/gi, '<\\/script')}</script>`));
+console.log('Built school GAS package (no deployment performed)');

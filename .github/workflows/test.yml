@@ -21,6 +21,11 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm test
       - uses: actions/upload-artifact@v4
+        with:
+          name: gas-school-package
+          path: build/gas/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: playwright-failure-traces

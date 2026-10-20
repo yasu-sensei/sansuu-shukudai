@@ -1,23 +1,66 @@
+import { MODES, seededRandom } from '../domain/modes.mjs';
+import { hasClassroomApi, callClassroom, createSessionRecorder, newRequestId } from './classroom-api.mjs';
 import { createQuestionGenerator } from "../domain/questions.mjs";
 import { awardStreakBonuses } from "../domain/streaks.mjs";
 import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
 (() => {
   "use strict";
-  const $ = (id) => document.getElementById(id), modes = [{ name: "10までの たしひき", short: "たしひき", mult: 1 }, { name: "20までの くりあがり たしざん", short: "たし算", mult: 2 }, { name: "20までの くりさがり ひきざん", short: "ひき算", mult: 2 }, { name: "九九（1・2・3・5・9）", short: "九九①", mult: 2 }, { name: "九九（4・6・7・8・9・10）", short: "九九②", mult: 3 }];
+  const $ = id => document.getElementById(id), modes = MODES;
+  const cloudMode = hasClassroomApi();
+  let remoteHome = null, remoteSession = null, recorder = null, serverDay = '', syncTick = null;
+  let questionIndex = -1, pendingSchoolAction = null;
+  const startRequests = new Map();
+  let schoolIdentity = null, registrationRequest = null, confirmedSelection = null;
+  $('confirmIdentity').style.whiteSpace=cloudMode?'pre-line':'';
+  $('confirmIdentity').style.overflowWrap='anywhere';
+  const registrationCheck = document.createElement('input'); registrationCheck.type='checkbox'; registrationCheck.id='confirmSchoolRegistration';
+  const registrationLabel = document.createElement('label'); registrationLabel.hidden=true;
+  registrationLabel.append(registrationCheck,document.createTextNode('クラスと ばんごうを かくにんしました。とうろくごは せんせいだけが なおせます。'));
+  $('confirmLogin').insertBefore(registrationLabel,$('confirmStart').closest('p'));
+  registrationCheck.onchange=()=>{if(cloudMode&&!schoolIdentity?.registered)$('confirmStart').disabled=!registrationCheck.checked;};
+  const notice = document.createElement('div'); notice.className = 'panel'; notice.hidden = !cloudMode;
+  const noticeText = document.createElement('p'); noticeText.setAttribute('role','status'); noticeText.setAttribute('aria-live','polite');
+  noticeText.id = 'schoolStatus';
+  const retrySave = document.createElement('button'); retrySave.textContent = 'もういちど ほぞんする'; retrySave.hidden = true; retrySave.id = 'retrySchoolSave';
+  const refreshSchool = document.createElement('button'); refreshSchool.textContent = 'しゅくだいを こうしん'; refreshSchool.hidden = true;
+  const teacherLink = document.createElement('a'); teacherLink.textContent = '先生の管理画面へ'; teacherLink.hidden = true; teacherLink.target = '_top';
+  notice.append(noticeText,retrySave,refreshSchool,teacherLink); $('login').before(notice);
+  function schoolStatus(text, retry = null) {
+    noticeText.textContent = text;
+    if (retry) pendingSchoolAction = retry;
+    retrySave.hidden = !retry;
+  }
+  retrySave.onclick = async () => {
+    if (!pendingSchoolAction) return;
+    retrySave.disabled = true;
+    try { await pendingSchoolAction(); } finally { retrySave.disabled = false; }
+  };
+  refreshSchool.onclick = async () => {
+    if (!remoteHome || active || pendingSchoolAction) return;
+    refreshSchool.disabled = true;
+    try {
+      remoteHome = await callClassroom('studentHome', {clazz: remoteHome.student.clazz, number: remoteHome.student.number});
+      serverDay=remoteHome.today; home(); schoolStatus('しゅくだいを こうしんしました。');
+    } catch (error) { schoolStatus(error.message); }
+    finally { refreshSchool.disabled = false; }
+  };
+
   let student = "", shown = /* @__PURE__ */ new Date(), selectedDate = "", mode = 0, question, started = 0, total = 0, correct = 0, firstTotal = 0, firstCorrect = 0, active = false, tick = null, wrongCount = 0, answerLocked = false, feedbackTimeout = null, freePractice = false;
-  const pad = (n) => String(n).padStart(2, "0"), dateString = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, today = () => dateString(/* @__PURE__ */ new Date()), studentKey = () => `math-homework-v2:${student}`, scheduleKey = "math-homework-v2:schedule", identityKey = "math-homework-v2:identity";
+  const pad = (n) => String(n).padStart(2, "0"), dateString = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, today = () => serverDay || dateString(/* @__PURE__ */ new Date()), studentKey = () => `math-homework-v2:${student}`, scheduleKey = "math-homework-v2:schedule", identityKey = "math-homework-v2:identity";
   const safeParse = (s, f) => {
     try {
       return JSON.parse(s) || f;
     } catch {
       return f;
     }
-  }, getSchedule = () => safeParse(localStorage.getItem(scheduleKey), {}), setSchedule = (s) => localStorage.setItem(scheduleKey, JSON.stringify(s));
+  }, getSchedule = () => cloudMode ? (remoteHome?.schedule || {}) : safeParse(localStorage.getItem(scheduleKey), {}), setSchedule = (s) => localStorage.setItem(scheduleKey, JSON.stringify(s));
   function get() {
+    if (cloudMode) return remoteHome?.data || {records:{},claimed:{},points:0};
     const d = safeParse(localStorage.getItem(studentKey()), {});
     return { records: d.records || {}, claimed: d.claimed || {}, points: Number(d.points) || 0 };
   }
   function save(d) {
+    if (cloudMode) throw new Error('学校の記録はサーバーで確定します。');
     localStorage.setItem(studentKey(), JSON.stringify(d));
   }
   function screen(id) {
@@ -95,8 +138,8 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     $("detailStatus").append(p);
     screen("detail");
   }
-  const generator = createQuestionGenerator(() => mode);
-  const problem = generator.problem;
+  let generator = createQuestionGenerator(() => mode);
+  const problem = () => generator.problem();
   function resetAnswer() {
     $("answer").value = "";
     $("answerDisplay").textContent = "？";
@@ -106,6 +149,7 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     answerLocked = false;
   }
   function showQuestion() {
+    questionIndex++;
     question = problem();
     wrongCount = 0;
     $("question").textContent = question.label;
@@ -134,6 +178,11 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
       screen("practiceResult");
       return;
     }
+    if (cloudMode) {
+      clearInterval(syncTick);
+      persistSchoolEnd(false, elapsed() * 1000);
+      return;
+    }
     const d = get();
     if (d.records[selectedDate]) {
       home();
@@ -160,7 +209,13 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
       alert("クラスと ばんごうを えらんでね");
       return;
     }
+    if(cloudMode)confirmedSelection={clazz:c,number:n};
     $("confirmIdentity").textContent = `${c}くみ　${n}ばん`;
+    if(cloudMode && schoolIdentity && !schoolIdentity.registered) {
+      $('confirmIdentity').textContent = `${c}くみ　${n}ばん\n${schoolIdentity.email}\nはじめての とうろくです。まちがいが ないか かくにんしてね。`;
+      registrationLabel.hidden=false; registrationCheck.checked=false; $('confirmStart').disabled=true;
+      $('confirmStart').textContent='このないようで とうろくする';
+    }
     $("confirmLogin").classList.remove("hidden");
     $("loginBtn").classList.add("hidden");
   }
@@ -169,12 +224,30 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     $("confirmLogin").classList.add("hidden");
     $("loginBtn").classList.remove("hidden");
   };
-  $("confirmStart").onclick = () => {
-    const c = Number($("clazz").value), n = Number($("number").value);
-    if (c < 1 || c > 4 || n < 1 || n > 35) return;
+  $('confirmStart').onclick = async () => {
+    const c = cloudMode?confirmedSelection?.clazz:Number($('clazz').value), n = cloudMode?confirmedSelection?.number:Number($('number').value);
+    if(!Number.isInteger(c)||!Number.isInteger(n)||c<1||c>4||n<1||n>35)return;
+    if (cloudMode) {
+      $('confirmStart').disabled = true;
+      try {
+        if(!schoolIdentity.registered) {
+          if(!registrationCheck.checked)throw new Error('クラスと ばんごうを かくにんしてね。');
+          const data={clazz:c,number:n,confirmed:true};
+          const key=JSON.stringify(data);
+          if(!registrationRequest||registrationRequest.key!==key)registrationRequest={key,id:newRequestId()};
+          await callClassroom('registerStudent',data,registrationRequest.id);
+          schoolIdentity.registered=true; registrationLabel.hidden=true; registrationRequest=null;
+          $('confirmStart').textContent='あっている！';
+        }
+        remoteHome = await callClassroom('studentHome', {clazz:c,number:n});
+        serverDay=remoteHome.today; student = `${c}くみ・${n}ばん`; shown = new Date(remoteHome.today+'T12:00:00');
+        refreshSchool.hidden = false; home(); schoolStatus('がっこうの しゅくだいを ひょうじしました。');
+      } catch(error) { schoolStatus(error.message); }
+      finally { $('confirmStart').disabled = false; }
+      return;
+    }
     student = `${c}くみ・${n}ばん`;
-    localStorage.setItem(identityKey, student);
-    home();
+    localStorage.setItem(identityKey, student); home();
   };
   $("switchUser").onclick = () => {
     const pin = prompt("せんせいの あんしょうばんごうを いれてください");
@@ -240,7 +313,9 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     render();
   };
   function preparePlay() {
-    generator.reset();
+    if(cloudMode) generator = cloudMode && !freePractice
+      ? createQuestionGenerator(()=>mode, seededRandom(remoteSession.seed)) : createQuestionGenerator(()=>mode);
+    generator.reset(); questionIndex = -1;
     total = 0;
     correct = 0;
     firstTotal = 0;
@@ -259,6 +334,8 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     showQuestion();
     clearInterval(tick);
     tick = setInterval(update, 150);
+    clearInterval(syncTick);
+    if(cloudMode && !freePractice) syncTick = setInterval(() => flushSchoolProgress(),15000);
   }
   modes.forEach((m, i) => {
     const b = document.createElement("button");
@@ -284,15 +361,13 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
   $("exitCancel").addEventListener("click", () => {
     $("exitDialog").classList.add("hidden");
   });
-  $("exitConfirm").addEventListener("click", () => {
-    $("exitDialog").classList.add("hidden");
-    if (!active) return;
-    active = false;
-    clearInterval(tick);
-    clearTimeout(feedbackTimeout);
-    feedbackTimeout = null;
-    answerLocked = false;
-    home();
+  $('exitConfirm').addEventListener('click', () => {
+    $('exitDialog').classList.add('hidden');
+    if(!active)return;
+    active=false; clearInterval(tick); clearInterval(syncTick); clearTimeout(feedbackTimeout);
+    feedbackTimeout=null; answerLocked=false;
+    if(cloudMode && !freePractice) persistSchoolEnd(true,elapsed()*1000);
+    else home();
   });
   $("practiceStart").onclick = () => {
     freePractice = true;
@@ -304,11 +379,26 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
   };
   $("practiceHome").onclick = home;
   $("detailBack").onclick = home;
-  $("start").onclick = () => {
-    if (get().records[selectedDate]) return openDetail(selectedDate);
-    if (getSchedule()[selectedDate] !== mode || selectedDate > today()) return home();
-    freePractice = false;
-    preparePlay();
+  $('start').onclick = async () => {
+    if(get().records[selectedDate])return openDetail(selectedDate);
+    if(getSchedule()[selectedDate]!==mode||selectedDate>today())return home();
+    if(cloudMode) {
+      if(pendingSchoolAction)return schoolStatus('さきに きろくを ほぞんしてね。',pendingSchoolAction);
+      const assignment=remoteHome.assignments.find(a=>a.date===selectedDate);
+      if(!assignment)return;
+      $('start').disabled=true;
+      try {
+        const requestId=startRequests.get(assignment.id)||newRequestId();
+        startRequests.set(assignment.id,requestId);
+        remoteSession=await callClassroom('startSession',{assignmentId:assignment.id},requestId);
+        startRequests.delete(assignment.id);
+        recorder=createSessionRecorder(remoteSession.id);
+        freePractice=false; preparePlay(); schoolStatus('しゅくだいを はじめました。');
+      }catch(error){schoolStatus(error.message);}
+      finally{$('start').disabled=false;}
+      return;
+    }
+    freePractice=false; preparePlay();
   };
   $("keypad").onclick = (e) => {
     const btn = e.target.closest("button[data-key]");
@@ -329,6 +419,7 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     const t = elapsed();
     total++;
     const ok = Number(raw) === question.value;
+    if(cloudMode && !freePractice) recorder.add({questionIndex,value:Number(raw),elapsedMs:t*1000});
     if (ok) correct++;
     else wrongCount++;
     if (t < 120) {
@@ -338,6 +429,7 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     $("correct").textContent = correct;
     $("answered").textContent = total;
     markAnswer(ok);
+    if(cloudMode&&!freePractice&&total%5===0)flushSchoolProgress();
     feedbackTimeout = setTimeout(() => {
       if (!active) return;
       if (ok || wrongCount >= 2) {
@@ -354,6 +446,62 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     submitAnswer();
   });
   $("back").onclick = home;
+  async function flushSchoolProgress() {
+    if(!active||freePractice||!recorder)return;
+    try { await recorder.flush({elapsedMs:elapsed()*1000}); }
+    catch(error) { if(active&&!pendingSchoolAction)schoolStatus('きろくが まだ ほぞんできていません。つうしんを かくにんしてね。'); }
+  }
+  async function persistSchoolEnd(cancel,elapsedMs) {
+    const action=async()=>persistSchoolEnd(cancel,elapsedMs);
+    pendingSchoolAction=action;
+    schoolStatus('きろくを ほぞんしています。');
+    try {
+      const response=await recorder.flush({elapsedMs,finish:!cancel,cancel});
+      pendingSchoolAction=null;
+      if(cancel){home();schoolStatus('ちゅうだんした きろくを ほぞんしました。');return;}
+      remoteHome=response.home; serverDay=remoteHome.today;
+      const rec=response.completion;
+      $('earned').textContent=`+${rec.earned+rec.bonus} ポイント！`;
+      $('summary').textContent=`はじめの2ふん：${rec.firstCorrect}もんせいかい／${rec.firstTotal}もんかいとう　｜　ぜんぶで：${rec.correct}もんせいかい／${rec.total}もんかいとう　｜　合計：${remoteHome.data.points}pt`;
+      screen('result');schoolStatus('がんばった きろくを ほぞんしました！');
+    }catch(error){
+      if(['SESSION','COMPLETED'].includes(error.code)) {
+        const recover=async()=>{
+          try {
+            remoteHome=await callClassroom('studentHome',{clazz:remoteHome.student.clazz,number:remoteHome.student.number});
+            pendingSchoolAction=null; recorder=null; serverDay=remoteHome.today; home(); schoolStatus('がっこうに ほぞんされた きろくを かくにんしました。');
+          }catch(failure){
+            if(['IDENTITY','ENROLLMENT'].includes(failure.code)) {
+              pendingSchoolAction=null; recorder=null; remoteHome=null; student=''; refreshSchool.hidden=true;
+              $('confirmLogin').classList.add('hidden'); $('loginBtn').classList.remove('hidden');screen('login');schoolStatus(failure.message);
+            }else schoolStatus(failure.message,recover);
+          }
+        };
+        retrySave.textContent='カレンダーの きろくを かくにん'; schoolStatus(error.message,recover);
+      }else{retrySave.textContent='もういちど ほぞんする';schoolStatus(error.message+'　このがめんで もういちど ほぞんしてね。',action);}
+    }
+  }
+  if(cloudMode) {
+    $('teacherToggle').hidden=true; $('teacher').classList.add('hidden');
+    $('switchUser').textContent='えらびなおす';
+    $('switchUser').onclick=()=>{
+      remoteHome=null; student=''; refreshSchool.hidden=true;
+      $('confirmLogin').classList.add('hidden');$('loginBtn').classList.remove('hidden');screen('login');
+    };
+    $('login').querySelector('.muted').textContent='はじめての ときは クラスと ばんごうを かくにんして とうろくします。とうろくごに なおせるのは せんせいだけです。';
+    $('loginBtn').disabled=true;
+    schoolStatus('がっこうの アカウントを かくにんしています。');
+    callClassroom('bootstrap').then(info=>{
+      serverDay=info.today; schoolIdentity=info;
+      if(info.role==='teacher') {
+        schoolStatus('先生のアカウントです。先生の管理画面から名簿と宿題を設定してください。');
+        if(info.teacherUrl){teacherLink.href=info.teacherUrl;teacherLink.hidden=false;}
+      } else {
+        $('loginBtn').disabled=false;
+        schoolStatus(info.registered?'クラスと ばんごうを えらんでね。':'はじめての とうろくです。クラスと ばんごうを えらんで、かくにんしてね。');
+      }
+    }).catch(error=>schoolStatus(error.message));
+  }else{
   const savedIdentity = localStorage.getItem(identityKey);
   if (savedIdentity && /^[1-4]くみ・(?:[1-9]|[12][0-9]|3[0-5])ばん$/.test(savedIdentity)) {
     student = savedIdentity;
@@ -366,5 +514,6 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
       if (d.getDay() !== 0 && d.getDay() !== 6) s[dateString(d)] = i % 5;
     }
     setSchedule(s);
+  }
   }
 })();

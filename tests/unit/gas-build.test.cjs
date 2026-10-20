@@ -27,6 +27,7 @@ test('GAS package builds repeatably and embeds its own styles and executable scr
   assert.doesNotThrow(() => new vm.Script(scripts[0][1]));
   assert.deepEqual(JSON.parse(read('build/gas/appsscript.json')), {
     timeZone: 'Asia/Tokyo', exceptionLogging: 'STACKDRIVER', runtimeVersion: 'V8',
+    oauthScopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/userinfo.email'],
   });
   assert.equal(read('build/gas/Code.gs'), read('src/gas/Code.gs'));
 });

@@ -1,0 +1,289 @@
+import { createQuestionGenerator } from '../domain/questions.mjs';
+import { calculatePoints } from '../domain/scoring.mjs';
+import { awardStreakBonuses } from '../domain/streaks.mjs';
+import { MODES, seededRandom } from '../domain/modes.mjs';
+
+export class ClassroomError extends Error {
+  constructor(code, message) { super(message); this.code = code; }
+}
+function requireValue(ok, code, message) {
+  if (!ok) throw new ClassroomError(code, message);
+}
+const int = (n, min, max) => Number.isInteger(n) && n >= min && n <= max;
+const normalizeEmail = value => String(value || '').trim().toLowerCase();
+function validDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+}
+const canonical = x => JSON.stringify(x, function (key, value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.keys(value).sort().map(k => [k, value[k]])) : value;
+});
+const ownStudent = (students, email) => Object.values(students).find(s => s.active && s.email === email);
+
+export function projectEvents(events) {
+  const state = { students: {}, assignments: {}, sessions: {}, completions: {}, wallets: {}, standards: {},
+    rosterRevision: '', assignmentRevision: '', standardRevision: '', requests: {} };
+  for (const event of events) {
+    requireValue(event && typeof event.id === 'string' && event.payload && typeof event.actor === 'string', 'STORE', '保存記録を読み取れません。先生に連絡してください。');
+    const p = event.payload;
+    switch (event.type) {
+      case 'students.registered':
+      case 'students.saved':
+        for (const student of p.students) {
+          const previous = state.students[student.id];
+          if (previous && ['email','clazz','number','active'].some(key=>previous[key]!==student[key])) {
+            for (const session of Object.values(state.sessions)) if(session.studentId===student.id&&session.status==='active')session.status='interrupted';
+          }
+          state.students[student.id] = student;
+        }
+        state.rosterRevision = event.id;
+        break;
+      case 'assignments.published':
+        for (const assignment of p.assignments) state.assignments[assignment.id] = assignment;
+        state.assignmentRevision = event.id;
+        break;
+      case 'standards.saved':
+        state.standards = p.standards;
+        state.standardRevision = event.id;
+        break;
+      case 'session.started':
+        for (const id of p.superseded) if (state.sessions[id]) state.sessions[id].status = 'interrupted';
+        state.sessions[p.session.id] = { ...p.session, answers: [], status: 'active', lastSeen: event.at };
+        break;
+      case 'session.recorded': {
+        const session = state.sessions[p.sessionId];
+        requireValue(session, 'STORE', '学習記録の対応が確認できません。');
+        session.answers.push(...p.answers);
+        session.summary = p.summary;
+        session.lastSeen = event.at;
+        session.status = p.status;
+        if (p.completion) {
+          state.completions[`${session.studentId}:${session.assignmentId}`] = p.completion;
+          state.wallets[session.studentId] = p.wallet;
+        }
+        break;
+      }
+      default: throw new ClassroomError('STORE', '未対応の保存記録があります。更新版を確認してください。');
+    }
+    state.requests[`${event.actor}:${event.requestId}`] = event;
+  }
+  return state;
+}
+
+export function assessSupport(records, threshold) {
+  if (threshold === undefined || threshold === null) return { status: '未設定', samples: 0, below: 0 };
+  const recent = [...records].sort((a, b) => b.completedAt - a.completedAt).slice(0, 3);
+  const below = recent.filter(r => r.firstCorrect < threshold).length;
+  return { status: recent.length < 3 ? '記録不足' : below >= 2 ? 'ようすを確認' : '目安内',
+    samples: recent.length, below, threshold, recent: recent.map(r => r.firstCorrect),
+    accuracy: recent.map(r => r.firstTotal ? Math.round(r.firstCorrect / r.firstTotal * 100) : null) };
+}
+
+// Server replays the issued sequence. Client totals, mode, student ID and points are never authoritative.
+export function scoreAnswers(session, answers, currentTime) {
+  const generator = createQuestionGenerator(() => session.mode, seededRandom(session.seed));
+  let question = generator.problem(), questionIndex = 0, wrong = 0, previous = null;
+  const summary = { total: 0, correct: 0, firstTotal: 0, firstCorrect: 0 };
+  for (const answer of answers) {
+    requireValue(int(answer.seq, 0, 20000) && answer.seq === summary.total && answer.questionIndex === questionIndex &&
+      int(answer.value, 0, 999) && Number.isFinite(answer.elapsedMs) && answer.elapsedMs >= 0 &&
+      answer.elapsedMs <= currentTime - session.startedAt + 2000, 'ANSWER', '解答の順序または時間が確認できません。');
+    if (previous) requireValue(answer.elapsedMs >= previous.elapsedMs + previous.feedback,
+      'ANSWER', '解答の間隔が短すぎます。');
+    const correct = answer.value === question.value;
+    summary.total++;
+    if (correct) summary.correct++;
+    if (answer.elapsedMs < 120000) {
+      summary.firstTotal++;
+      if (correct) summary.firstCorrect++;
+    }
+    previous = { elapsedMs: answer.elapsedMs, feedback: correct ? 650 : 900 };
+    if (correct || ++wrong >= 2) {
+      question = generator.problem(); questionIndex++; wrong = 0;
+    }
+  }
+  return { ...summary, lastAnswerAt: previous?.elapsedMs ?? 0, feedbackUntil: previous ? previous.elapsedMs + previous.feedback : 0 };
+}
+
+/** All mutations must run inside the storage adapter's shared lock. append() commits ONE event row. */
+export function createClassroomService({ store, config, now = Date.now, id, random = Math.random, today, verifyTeacherPin = () => false }) {
+  return {
+    handle(actorEmail, request) {
+      const email = normalizeEmail(actorEmail);
+      requireValue(config && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(config.schoolDomain || '') &&
+        /^\d{4}$/.test(config.schoolYear || '') && Array.isArray(config.teachers) && config.teachers.length,
+      'CONFIG', '学校用の設定が未完了です。先生に連絡してください。');
+      requireValue(/^[^\s@]+@[^\s@]+$/.test(email) && email.split('@')[1] === config.schoolDomain.toLowerCase(),
+        'AUTH', '学校のGoogleアカウントを確認できません。学校アカウントで開き直してください。');
+      const teacher = config.teachers.map(normalizeEmail).includes(email);
+      requireValue(request && typeof request.action === 'string' && request.data && typeof request.data === 'object' && !Array.isArray(request.data),
+        'INPUT', '操作内容を確認できません。');
+      const { action, data } = request;
+      const state = projectEvents(store.read());
+      const currentTime = now(), day = today();
+      requireValue(validDate(day), 'CONFIG', '学校の日付設定を確認してください。');
+      const student = ownStudent(state.students, email);
+      const requireTeacher = () => requireValue(teacher, 'FORBIDDEN', '先生だけが利用できる操作です。');
+      const requireStudent = () => requireValue(student, 'ENROLLMENT', '学級・番号が登録されていません。先生に確認してください。');
+      const assignmentsFor = s => Object.values(state.assignments).filter(a => a.clazz === s.clazz && a.schoolYear === config.schoolYear);
+      const home = s => {
+        const assignments = assignmentsFor(s);
+        const records = {};
+        for (const a of assignments) {
+          const completion = state.completions[`${s.id}:${a.id}`];
+          if (completion) records[a.date] = completion;
+        }
+        const wallet = state.wallets[s.id] || { points: 0, claimed: {} };
+        return { student: { id: s.id, clazz: s.clazz, number: s.number, name: s.name }, today: day,
+          schedule: Object.fromEntries(assignments.map(a => [a.date, a.mode])),
+          assignments, data: { records, points: wallet.points, claimed: wallet.claimed } };
+      };
+      const dashboard = () => {
+        requireTeacher();
+        const from = data.from || day, to = data.to || day;
+        requireValue(validDate(from) && validDate(to) && from <= to && (!data.clazz || int(data.clazz, 1, 4)), 'INPUT', '学級・日付の範囲を確認してください。');
+        const students = Object.values(state.students).sort((a, b) => a.clazz - b.clazz || a.number - b.number);
+        const assignments = Object.values(state.assignments).filter(a => a.schoolYear === config.schoolYear && a.date >= from && a.date <= to && (!data.clazz || a.clazz === data.clazz))
+          .sort((a, b) => b.date.localeCompare(a.date) || a.clazz - b.clazz);
+        const progress = [];
+        for (const a of assignments) for (const s of students.filter(s => s.active && s.clazz === a.clazz)) {
+          const completion = state.completions[`${s.id}:${a.id}`];
+          const sessions = Object.values(state.sessions).filter(x => x.studentId === s.id && x.assignmentId === a.id).sort((a, b) => b.startedAt - a.startedAt);
+          const latest = sessions[0];
+          progress.push({ studentId: s.id, name: s.name, clazz: s.clazz, number: s.number, date: a.date, mode: a.mode,
+            status: completion ? '完了' : !latest ? '未着手' : latest.status === 'active' && currentTime - latest.lastSeen < 300000 ? '取り組み中' : '中断',
+            summary: completion || latest?.summary || null });
+        }
+        const support = students.filter(s => s.active && (!data.clazz || s.clazz === data.clazz)).flatMap(s => MODES.map((m, mode) => {
+          const records = Object.values(state.completions).filter(c => c.studentId === s.id && c.schoolYear === config.schoolYear && c.mode === mode);
+          return { studentId: s.id, name: s.name, clazz: s.clazz, number: s.number, mode, ...assessSupport(records, state.standards[mode]) };
+        }));
+        return { today: day, schoolYear: config.schoolYear, students, assignments, progress, support, standards: state.standards,
+          pinConfigured: !!config.pinConfigured, rosterRevision: state.rosterRevision, assignmentRevision: state.assignmentRevision, standardRevision: state.standardRevision };
+      };
+      if (action === 'bootstrap') return { role: teacher ? 'teacher' : 'student', today: day, registered: !!student, email };
+      if (action === 'teacherDashboard') return dashboard();
+      if (action === 'studentHome') {
+        requireStudent();
+        requireValue(data.clazz === student.clazz && data.number === student.number, 'IDENTITY', '選んだ学級・番号が学校アカウントの登録と違います。先生に確認してください。');
+        return home(student);
+      }
+      const teacherActions = ['saveStudents', 'publishAssignments', 'saveStandards'];
+      if (teacherActions.includes(action)) requireTeacher();
+      else if (action !== 'registerStudent') requireStudent();
+      if (action === 'saveStudents') requireValue(verifyTeacherPin(email, data.teacherPin), 'PIN', '先生の暗証番号を確認してください。');
+      requireValue(['registerStudent', 'saveStudents', 'publishAssignments', 'saveStandards', 'startSession', 'recordSession'].includes(action), 'INPUT', '未対応の操作です。');
+      requireValue(typeof request.requestId === 'string' && /^[A-Za-z0-9_-]{8,100}$/.test(request.requestId), 'INPUT', '操作IDを確認できません。');
+      // Authentication secrets never enter the event log, audit payload, or idempotency fingerprint.
+      const fingerprint = canonical({ action, data: { ...data, teacherPin: undefined } });
+      const prior = state.requests[`${email}:${request.requestId}`];
+      if (prior) {
+        requireValue(prior.fingerprint === fingerprint, 'CONFLICT', '同じ操作IDで異なる内容が送信されています。');
+        return prior.result.completion ? { ...prior.result, home: home(student) } : prior.result;
+      }
+      const commit = (type, payload, result) => {
+        const persistedResult = result.home ? { accepted: result.accepted, status: result.status, completion: result.completion } : result;
+        store.append({ id: id(), type, at: currentTime, actor: email, requestId: request.requestId, fingerprint, payload, result: persistedResult });
+        return result;
+      };
+      if (action === 'registerStudent') {
+        requireValue(!teacher, 'FORBIDDEN', '先生のアカウントでは児童登録できません。');
+        requireValue(data.confirmed === true && int(data.clazz, 1, 4) && int(data.number, 1, 35),
+          'CONFIRM', '学級・番号を確認し、これでよいことにチェックして登録してください。');
+        const existing = Object.values(state.students).find(s => s.email === email);
+        if (existing) {
+          requireValue(existing.active && existing.clazz === data.clazz && existing.number === data.number,
+            'REGISTERED', 'このアカウントは登録済みです。変更は先生にお願いしてください。');
+          return { registered: true };
+        }
+        requireValue(!Object.values(state.students).some(s => s.active && s.clazz === data.clazz && s.number === data.number),
+          'DUPLICATE', 'この学級・番号は登録済みです。番号を確認し、先生に相談してください。');
+        const registration = { id: id(), email, clazz: data.clazz, number: data.number, name: '', active: true };
+        return commit('students.registered', { students: [registration] }, { registered: true });
+      }
+      if (action === 'saveStudents') {
+        requireValue(data.expectedRevision === state.rosterRevision, 'CONFLICT', '名簿が更新されています。再読込してください。');
+        requireValue(Array.isArray(data.students) && data.students.length >= 1 && data.students.length <= 140, 'INPUT', '名簿は1〜140人で登録してください。');
+        const updates = data.students.map(input => {
+          const mail = normalizeEmail(input.email);
+          const existing = input.id ? state.students[input.id] : Object.values(state.students).find(s => s.email === mail);
+          requireValue(!input.id || existing, 'INPUT', '更新する児童が見つかりません。');
+          requireValue(/^[^\s@]+@[^\s@]+$/.test(mail) && mail.split('@')[1] === config.schoolDomain.toLowerCase() &&
+            !config.teachers.map(normalizeEmail).includes(mail) && int(input.clazz, 1, 4) && int(input.number, 1, 35) &&
+            typeof input.active === 'boolean' && typeof input.name === 'string' && input.name.length <= 60,
+          'INPUT', '学校メール・学級・番号・名前を確認してください。');
+          return { id: existing?.id || id(), email: mail, clazz: input.clazz, number: input.number, name: input.name.trim(), active: input.active };
+        });
+        requireValue(new Set(updates.map(s => s.id)).size === updates.length, 'INPUT', '名簿に同じ児童が重複しています。');
+        const combined = { ...state.students, ...Object.fromEntries(updates.map(s => [s.id, s])) };
+        const list = Object.values(combined), active = list.filter(s => s.active);
+        requireValue(new Set(list.map(s => s.email)).size === list.length && new Set(active.map(s => `${s.clazz}:${s.number}`)).size === active.length,
+          'DUPLICATE', '学校メール、または有効な学級・番号が重複しています。');
+        return commit('students.saved', { students: updates }, { saved: updates.length });
+      }
+      if (action === 'publishAssignments') {
+        requireValue(data.expectedRevision === state.assignmentRevision, 'CONFLICT', '宿題設定が更新されています。再読込してください。');
+        requireValue(Array.isArray(data.classes) && data.classes.length > 0 && data.classes.length <= 4 && new Set(data.classes).size === data.classes.length && data.classes.every(c => int(c, 1, 4)) &&
+          Array.isArray(data.dates) && data.dates.length > 0 && data.dates.length <= 31 && new Set(data.dates).size === data.dates.length && data.dates.every(validDate) && int(data.mode, 0, 4),
+        'INPUT', '学級・日付（最大31日）・計算モードを確認してください。');
+        const assignments = data.classes.flatMap(clazz => data.dates.map(date => {
+          const existing = Object.values(state.assignments).find(a => a.schoolYear === config.schoolYear && a.clazz === clazz && a.date === date);
+          if (existing && existing.mode !== data.mode) requireValue(!Object.values(state.sessions).some(s => s.assignmentId === existing.id),
+            'STARTED', '開始済みの宿題はモードを変更できません。');
+          return { id: existing?.id || id(), schoolYear: config.schoolYear, clazz, date, mode: data.mode };
+        }));
+        return commit('assignments.published', { assignments }, { published: assignments.length });
+      }
+      if (action === 'saveStandards') {
+        requireValue(data.expectedRevision === state.standardRevision, 'CONFLICT', '目安が更新されています。再読込してください。');
+        requireValue(data.standards && typeof data.standards === 'object' && !Array.isArray(data.standards) && Object.entries(data.standards).every(([m, n]) => /^[0-4]$/.test(m) && int(n, 1, 500)),
+          'INPUT', '目安は各モード1〜500問で設定し、使わないモードは空欄にしてください。');
+        return commit('standards.saved', { standards: data.standards }, { saved: true });
+      }
+      if (action === 'startSession') {
+        const assignment = state.assignments[data.assignmentId];
+        requireValue(assignment && assignment.schoolYear === config.schoolYear && assignment.clazz === student.clazz && assignment.date <= day,
+          'ASSIGNMENT', 'この宿題は開始できません。カレンダーを更新してください。');
+        requireValue(!state.completions[`${student.id}:${assignment.id}`], 'COMPLETED', 'この宿題は完了しています。');
+        const session = { id: id(), studentId: student.id, assignmentId: assignment.id, mode: assignment.mode,
+          seed: Math.floor(random() * 2 ** 32), startedAt: currentTime, schoolYear: config.schoolYear };
+        const superseded = Object.values(state.sessions).filter(s => s.studentId === student.id && s.status === 'active').map(s => s.id);
+        return commit('session.started', { session, superseded }, { id: session.id, seed: session.seed, mode: session.mode });
+      }
+      const session = state.sessions[data.sessionId];
+      requireValue(session && session.studentId === student.id && session.schoolYear === config.schoolYear, 'FORBIDDEN', 'この学習記録は操作できません。');
+      requireValue(session.status === 'active', 'SESSION', '学習が終了しています。カレンダーから確認してください。');
+      requireValue(Array.isArray(data.answers) && data.answers.length <= 200 && data.answers.every(a => a && Object.keys(a).every(k => ['seq', 'questionIndex', 'value', 'elapsedMs'].includes(k))) &&
+        typeof data.finish === 'boolean' && typeof data.cancel === 'boolean' && !(data.finish && data.cancel) &&
+        Number.isFinite(data.elapsedMs) && data.elapsedMs >= 0 && data.elapsedMs <= currentTime - session.startedAt + 2000,
+      'INPUT', '学習記録の形式を確認できません。');
+      const answers = session.answers.concat(data.answers);
+      const summary = scoreAnswers(session, answers, currentTime);
+      requireValue(data.elapsedMs >= summary.lastAnswerAt && data.elapsedMs >= (session.summary?.elapsedMs || 0), 'ANSWER', '学習時間を確認できません。');
+      let completion = null, wallet = null;
+      if (data.finish) {
+        requireValue(currentTime - session.startedAt >= 120000 && data.elapsedMs >= 120000 && summary.correct >= 10 && data.elapsedMs >= summary.feedbackUntil,
+          'INCOMPLETE', '2分以上・10問以上正解で完了します。');
+        requireValue(!state.completions[`${student.id}:${session.assignmentId}`], 'COMPLETED', 'この宿題は完了しています。');
+        const assignment = state.assignments[session.assignmentId];
+        completion = { ...summary, studentId: student.id, assignmentId: assignment.id, schoolYear: config.schoolYear, date: assignment.date,
+          mode: session.mode, elapsed: Math.round(data.elapsedMs / 1000), completedAt: currentTime, earned: calculatePoints(summary.firstCorrect, MODES[session.mode].mult) };
+        const oldWallet = state.wallets[student.id] || { points: 0, claimed: {} };
+        const records = home(student).data.records;
+        records[assignment.date] = completion;
+        const d = { records, points: oldWallet.points + completion.earned, claimed: { ...oldWallet.claimed } };
+        const bonus = awardStreakBonuses(d, assignmentsFor(student).map(a => a.date).sort());
+        completion.bonus = bonus;
+        wallet = { points: d.points, claimed: d.claimed };
+        // Update the projection before creating the response; persisted event is still the only commit.
+        state.completions[`${student.id}:${assignment.id}`] = completion;
+        state.wallets[student.id] = wallet;
+      }
+      const status = data.finish ? 'completed' : data.cancel ? 'interrupted' : 'active';
+      const storedSummary = { ...summary, elapsedMs: data.elapsedMs, elapsed: Math.round(data.elapsedMs / 1000) };
+      return commit('session.recorded', { sessionId: session.id, answers: data.answers, summary: storedSummary, status, completion, wallet },
+        { accepted: answers.length, status, ...(completion ? { completion, home: home(student) } : {}) });
+    },
+  };
+}
