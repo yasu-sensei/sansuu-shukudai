@@ -2,12 +2,29 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadLogic } = require('../helpers/legacy-logic.cjs');
+const { loadLogic: loadBaseline } = require('../helpers/legacy-logic.cjs');
+const { createQuestionGenerator } = require('../../src/domain/questions.mjs');
+const { bonusFor, awardStreakBonuses } = require('../../src/domain/streaks.mjs');
+function randomFor(seed) {
+  let state = seed >>> 0;
+  return () => ((state = (1664525 * state + 1013904223) >>> 0) / 2 ** 32);
+}
+function loadLogic(mode = 0, seed = 1, schedule = {}) {
+  return {
+    ...createQuestionGenerator(() => mode, randomFor(seed)),
+    bonusFor,
+    claimBonuses: data => awardStreakBonuses(data, Object.keys(schedule).sort()),
+  };
+}
 
-test('index.html is byte-for-byte identical to the preserved original', () => {
+test('HTML elements and CSS are unchanged; only stylesheet/script loading is separated', () => {
   const root = path.join(__dirname, '../..');
-  assert.deepEqual(fs.readFileSync(path.join(root, 'index.html')),
-    fs.readFileSync(path.join(root, 'homework_math_calendar_keypad_practice_v10.html')));
+  const original = fs.readFileSync(path.join(root, 'homework_math_calendar_keypad_practice_v10.html'), 'utf8');
+  const css = original.match(/<style>([\s\S]*?)<\/style>/)[1];
+  assert.equal(fs.readFileSync(path.join(root, 'src/client/styles.css'), 'utf8'), css);
+  const expected = original.replace(/<style>[\s\S]*?<\/style>/, '<link rel="stylesheet" href="./src/client/styles.css">')
+    .replace(/<script>[\s\S]*?<\/script>/, '<script type="module" src="./src/client/game.mjs"></script>');
+  assert.equal(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), expected);
 });
 
 for (let mode = 0; mode < 5; mode++) {
@@ -57,18 +74,29 @@ for (let mode = 0; mode < 5; mode++) {
           assert.deepEqual(counts, Object.fromEntries(tables.map(n => [n, 2])));
         }
       }
-      assert.equal(logic.recent().length, Math.min(35, questions.length));
+
     }
   });
 }
 
-test('expression selection prefers unused and nonrecent alternatives', () => {
-  const logic = loadLogic();
-  const options = [{ a: 1, b: 2, op: '+' }, { a: 2, b: 1, op: '+' }];
-  logic.setRecent(['1+2']);
-  assert.equal(logic.chooseExpression(options).key, '2+1');
-  logic.setRecent([]);
-  assert.equal(logic.chooseExpression(options, ['1+2']).key, '2+1');
+test('modular generator exactly matches the original random stream, including rolling history and reset', () => {
+  for (let mode = 0; mode < 5; mode++) {
+    for (let seed = 1; seed <= 100; seed++) {
+      const actual = loadLogic(mode, seed);
+      const baseline = loadBaseline(mode, seed);
+      for (let i = 0; i < 100; i++) {
+        assert.deepEqual(actual.problem(), JSON.parse(JSON.stringify(baseline.problem())), `mode=${mode} seed=${seed} question=${i}`);
+      }
+    }
+  }
+  let mode = 0;
+  const generator = createQuestionGenerator(() => mode, () => 0.5);
+  generator.problem();
+  generator.reset();
+  assert.deepEqual(generator.problem(), createQuestionGenerator(() => mode, () => 0.5).problem());
+  mode = 4;
+  generator.reset();
+  assert.ok([4, 6, 7, 8, 9, 10].includes(Number(generator.problem().key.split('×')[0])));
 });
 
 test('bonus milestones: 3, 5, 10, 20, 30, but not 15 or ordinary counts', () => {

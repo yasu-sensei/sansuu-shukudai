@@ -4,6 +4,10 @@ module.exports = defineConfig({
   fullyParallel: true,
   workers: 2,
   retries: 0,
+  projects: [
+    { name: 'static', metadata: { gamePath: '/index.html' } },
+    { name: 'gas-bundle', metadata: { gamePath: '/build/gas/Index.html' } },
+  ],
   reporter: 'list',
   use: {
     baseURL: 'http://127.0.0.1:8765',
