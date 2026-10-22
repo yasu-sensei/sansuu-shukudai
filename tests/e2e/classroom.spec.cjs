@@ -196,3 +196,27 @@ test('teacher correction during homework ends the old enrollment session and let
   await expect(page.locator('#who')).toHaveText('1くみ・2ばん');
   await expect(page.locator('#points')).toHaveText('⭐ 0pt');
 });
+
+
+test('teacher account can confirm test enrollment and complete homework without losing management access', async ({ page }) => {
+  const h = harness(); h.publish(0, ['2026-10-19'], [3]);
+  await bridge(page, h, 'teacher@school.example');
+  await page.goto(test.info().project.metadata.gamePath);
+  await expect(page.locator('#loginBtn')).toBeEnabled();
+  await expect(page.locator('#schoolStatus')).toContainText('児童としてテスト');
+  await page.selectOption('#clazz', '3'); await page.selectOption('#number', '35');
+  await page.click('#loginBtn');
+  await expect(page.locator('#confirmIdentity')).toContainText('先生のテスト登録');
+  await expect(page.locator('#confirmStart')).toBeDisabled();
+  await page.check('#confirmSchoolRegistration'); await page.click('#confirmStart');
+  await expect(page.locator('#home')).toBeVisible();
+  await page.locator('.day.assigned').click(); await page.click('#start');
+  await solve(page, 10); await page.clock.runFor(120000);
+  await expect(page.locator('#result')).toBeVisible();
+  await expect(page.locator('#summary')).toContainText('20pt');
+  assertTeacher();
+  function assertTeacher() {
+    expect(h.teacher('bootstrap').role).toBe('teacher');
+    expect(h.dashboard().progress[0].status).toBe('完了');
+  }
+});

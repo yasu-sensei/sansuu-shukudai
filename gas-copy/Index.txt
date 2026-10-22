@@ -451,7 +451,7 @@
       if (cloudMode && schoolIdentity && !schoolIdentity.registered) {
         $("confirmIdentity").textContent = `${c}くみ　${n}ばん
 ${schoolIdentity.email}
-はじめての とうろくです。まちがいが ないか かくにんしてね。`;
+${schoolIdentity.role === "teacher" ? "先生のテスト登録です。児童が使わない番号か確認してください。" : "はじめての とうろくです。まちがいが ないか かくにんしてね。"}`;
         registrationLabel.hidden = false;
         registrationCheck.checked = false;
         $("confirmStart").disabled = true;
@@ -473,7 +473,7 @@ ${schoolIdentity.email}
         try {
           if (!schoolIdentity.registered) {
             if (!registrationCheck.checked) throw new Error("クラスと ばんごうを かくにんしてね。");
-            const data = { clazz: c, number: n, confirmed: true };
+            const data = { clazz: c, number: n, confirmed: true, ...schoolIdentity.role === "teacher" ? { teacherTest: true } : {} };
             const key = JSON.stringify(data);
             if (!registrationRequest || registrationRequest.key !== key) registrationRequest = { key, id: newRequestId() };
             await callClassroom("registerStudent", data, registrationRequest.id);
@@ -785,7 +785,8 @@ ${schoolIdentity.email}
         serverDay = info.today;
         schoolIdentity = info;
         if (info.role === "teacher") {
-          schoolStatus("先生のアカウントです。先生の管理画面から名簿と宿題を設定してください。");
+          $("loginBtn").disabled = false;
+          schoolStatus("先生のアカウントです。下のクラス・番号から児童としてテストできます。実際の児童が使わない番号を選んでください。");
           if (info.teacherUrl) {
             teacherLink.href = info.teacherUrl;
             teacherLink.hidden = false;

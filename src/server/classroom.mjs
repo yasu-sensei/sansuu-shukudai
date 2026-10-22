@@ -188,7 +188,7 @@ export function createClassroomService({ store, config, now = Date.now, id, rand
         return result;
       };
       if (action === 'registerStudent') {
-        requireValue(!teacher, 'FORBIDDEN', '先生のアカウントでは児童登録できません。');
+        requireValue(!teacher || data.teacherTest === true, 'CONFIRM', '先生のテスト登録であることを確認してください。');
         requireValue(data.confirmed === true && int(data.clazz, 1, 4) && int(data.number, 1, 35),
           'CONFIRM', '学級・番号を確認し、これでよいことにチェックして登録してください。');
         const existing = Object.values(state.students).find(s => s.email === email);
@@ -199,7 +199,7 @@ export function createClassroomService({ store, config, now = Date.now, id, rand
         }
         requireValue(!Object.values(state.students).some(s => s.active && s.clazz === data.clazz && s.number === data.number),
           'DUPLICATE', 'この学級・番号は登録済みです。番号を確認し、先生に相談してください。');
-        const registration = { id: id(), email, clazz: data.clazz, number: data.number, name: '', active: true };
+        const registration = { id: id(), email, clazz: data.clazz, number: data.number, name: teacher ? '先生（テスト）' : '', active: true, ...(teacher ? { isTest: true } : {}) };
         return commit('students.registered', { students: [registration] }, { registered: true });
       }
       if (action === 'saveStudents') {
@@ -210,10 +210,10 @@ export function createClassroomService({ store, config, now = Date.now, id, rand
           const existing = input.id ? state.students[input.id] : Object.values(state.students).find(s => s.email === mail);
           requireValue(!input.id || existing, 'INPUT', '更新する児童が見つかりません。');
           requireValue(/^[^\s@]+@[^\s@]+$/.test(mail) && mail.split('@')[1] === config.schoolDomain.toLowerCase() &&
-            !config.teachers.map(normalizeEmail).includes(mail) && int(input.clazz, 1, 4) && int(input.number, 1, 35) &&
+            (!config.teachers.map(normalizeEmail).includes(mail) || (existing?.isTest === true && existing.email === mail)) && int(input.clazz, 1, 4) && int(input.number, 1, 35) &&
             typeof input.active === 'boolean' && typeof input.name === 'string' && input.name.length <= 60,
           'INPUT', '学校メール・学級・番号・名前を確認してください。');
-          return { id: existing?.id || id(), email: mail, clazz: input.clazz, number: input.number, name: input.name.trim(), active: input.active };
+          return { id: existing?.id || id(), email: mail, clazz: input.clazz, number: input.number, name: input.name.trim(), active: input.active, ...(existing?.isTest ? { isTest: true } : {}) };
         });
         requireValue(new Set(updates.map(s => s.id)).size === updates.length, 'INPUT', '名簿に同じ児童が重複しています。');
         const combined = { ...state.students, ...Object.fromEntries(updates.map(s => [s.id, s])) };

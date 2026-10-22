@@ -249,7 +249,7 @@ test('first registration captures the real school account only after explicit co
   assert.equal(h.events.length, count);
   rejectsCode(() => h.student('registerStudent', { clazz: 2, number: 2, confirmed: true }), 'REGISTERED');
   rejectsCode(() => h.api('two@school.example', 'registerStudent', { clazz: 1, number: 1, confirmed: true }), 'DUPLICATE');
-  rejectsCode(() => h.teacher('registerStudent', { clazz: 1, number: 3, confirmed: true }), 'FORBIDDEN');
+  rejectsCode(() => h.teacher('registerStudent', { clazz: 1, number: 3, confirmed: true }), 'CONFIRM');
 });
 
 test('roster changes require BOTH teacher identity and PIN; the PIN is never stored in events', () => {
@@ -270,4 +270,35 @@ test('teacher identity corrections interrupt old sessions so work cannot be save
   rejectsCode(() => record(h, session, [], { elapsedMs: 0, finish: false }), 'SESSION');
   rejectsCode(() => h.student('studentHome', { clazz: 1, number: 1 }), 'IDENTITY');
   assert.equal(h.student('studentHome', { clazz: 2, number: 3 }).data.points, 0);
+});
+
+
+test('teacher can test homework using own account while preserving teacher rights and protecting occupied slots', () => {
+  const h = harness(); h.roster(); h.publish(0, ['2026-10-19'], [3]);
+  rejectsCode(() => h.teacher('registerStudent', { clazz: 1, number: 1, confirmed: true, teacherTest: true }), 'DUPLICATE');
+  h.teacher('registerStudent', { clazz: 3, number: 35, confirmed: true, teacherTest: true }, 'teacher-test-registration');
+  assert.equal(h.teacher('bootstrap').role, 'teacher');
+  assert.equal(h.teacher('bootstrap').registered, true);
+  const testStudent = h.dashboard().students.find(s => s.email === 'teacher@school.example');
+  assert.equal(testStudent.name, '先生（テスト）'); assert.equal(testStudent.isTest, true);
+  rejectsCode(() => h.student('studentHome', { clazz: 3, number: 35 }), 'IDENTITY');
+  rejectsCode(() => h.teacher('studentHome', { clazz: 1, number: 1 }), 'IDENTITY');
+  const home = h.teacher('studentHome', { clazz: 3, number: 35 });
+  const session = h.teacher('startSession', { assignmentId: home.assignments[0].id });
+  h.advance(120000);
+  const result = h.teacher('recordSession', { sessionId: session.id, answers: h.correctAnswers(session), elapsedMs: 120000, finish: true, cancel: false }, 'teacher-test-finish');
+  assert.equal(result.home.data.points, 20);
+  assert.equal(h.student('studentHome', { clazz: 1, number: 1 }).data.points, 0);
+  assert.equal(h.dashboard().progress.find(p => p.number === 35).status, '完了');
+  h.roster([{ ...testStudent, number: 34 }]);
+  assert.equal(h.teacher('studentHome', { clazz: 3, number: 34 }).student.number, 34);
+  assert.equal(h.dashboard().students.find(s => s.id === testStudent.id).isTest, true);
+});
+
+test('children cannot claim teacher rights or a teacher test marker through registration fields', () => {
+  const h = harness();
+  h.student('registerStudent', { clazz: 3, number: 35, confirmed: true, teacherTest: true, isTest: true, role: 'teacher', email: 'teacher@school.example' });
+  assert.equal(h.student('bootstrap').role, 'student');
+  assert.equal(h.dashboard().students[0].isTest, undefined);
+  rejectsCode(() => h.student('teacherDashboard'), 'FORBIDDEN');
 });

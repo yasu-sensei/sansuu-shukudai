@@ -212,7 +212,7 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     if(cloudMode)confirmedSelection={clazz:c,number:n};
     $("confirmIdentity").textContent = `${c}くみ　${n}ばん`;
     if(cloudMode && schoolIdentity && !schoolIdentity.registered) {
-      $('confirmIdentity').textContent = `${c}くみ　${n}ばん\n${schoolIdentity.email}\nはじめての とうろくです。まちがいが ないか かくにんしてね。`;
+      $('confirmIdentity').textContent = `${c}くみ　${n}ばん\n${schoolIdentity.email}\n${schoolIdentity.role==='teacher'?'先生のテスト登録です。児童が使わない番号か確認してください。':'はじめての とうろくです。まちがいが ないか かくにんしてね。'}`;
       registrationLabel.hidden=false; registrationCheck.checked=false; $('confirmStart').disabled=true;
       $('confirmStart').textContent='このないようで とうろくする';
     }
@@ -232,7 +232,7 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
       try {
         if(!schoolIdentity.registered) {
           if(!registrationCheck.checked)throw new Error('クラスと ばんごうを かくにんしてね。');
-          const data={clazz:c,number:n,confirmed:true};
+          const data={clazz:c,number:n,confirmed:true,...(schoolIdentity.role==='teacher'?{teacherTest:true}:{})};
           const key=JSON.stringify(data);
           if(!registrationRequest||registrationRequest.key!==key)registrationRequest={key,id:newRequestId()};
           await callClassroom('registerStudent',data,registrationRequest.id);
@@ -494,7 +494,8 @@ import { shouldFinish, calculatePoints } from "../domain/scoring.mjs";
     callClassroom('bootstrap').then(info=>{
       serverDay=info.today; schoolIdentity=info;
       if(info.role==='teacher') {
-        schoolStatus('先生のアカウントです。先生の管理画面から名簿と宿題を設定してください。');
+        $('loginBtn').disabled=false;
+        schoolStatus('先生のアカウントです。下のクラス・番号から児童としてテストできます。実際の児童が使わない番号を選んでください。');
         if(info.teacherUrl){teacherLink.href=info.teacherUrl;teacherLink.hidden=false;}
       } else {
         $('loginBtn').disabled=false;
